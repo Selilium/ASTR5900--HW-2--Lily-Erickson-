@@ -17,11 +17,11 @@ Notes to self:
   - use python3 to run code on terminal
 """
 
-from __future__ import annotations
-
 import argparse
 import csv
 import math
+import os
+import matplotlib.pyplot as plt
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, List, Optional
@@ -217,10 +217,6 @@ def newton(
 
     return RootResult(root=x, iterations=max_iter, history=history)
 
-# ============================================================
-# COMMIT #1: Core solvers (Bisection + Newton) {Note: Commit #1 referes to the code ABOVE this line has been pushed to github. Everything below this line is new code that has not yet been pushed.}
-# ============================================================
-
 # ---------------------------
 # Plotting
 # ---------------------------
@@ -304,6 +300,102 @@ def sensitivity_experiments(eps: float = 1e-8) -> None:
 
     print("\nConceptual note: if you chose x0 EXACTLY where f'(x0)=0, Newton fails immediately.")
 
+
+# ---------------------------
+# Problem 3: Kepler's Equation 
+#   Solve:  M = E - e sin(E)
+#   Root form: g(E) = E - e sin(E) - M = 0
+#   No closed-form solution for E in general (when e != 0)
+# ---------------------------
+
+def kepler_g(E: float, e: float, M: float) -> float:
+    """g(E) = E - e sin(E) - M"""
+    return E - e * math.sin(E) - M
+
+def kepler_gp(E: float, e: float, M: float) -> float:
+    """g'(E) = 1 - e cos(E)"""
+    return 1.0 - e * math.cos(E)
+
+def run_problem3(eps: float, max_iter: int, verbose: bool, no_save: bool) -> None:
+    """
+    Runs Kepler equation solves for a few (e, M) cases using both methods.
+    Saves a results summary table + a figure of iteration count vs eccentricity.
+    """
+
+    print("\n\n=== Problem 3: Kepler's Equation ===")
+    print("Solve g(E)=E - e sin(E) - M = 0 for E (eccentric anomaly).")
+
+    # Keeping M fixed while increasing e shows harder nonlinear behavior.
+    cases = [
+        (0.2, 1.0),
+        (0.6, 1.0),
+        (0.9, 1.0),
+    ]
+
+    # For e < 1, g'(E) = 1 - e cos(E) >= 1 - e > 0 so g(E) is monotonic.
+    a = 0.0
+    b = 2.0 * math.pi
+
+    results_rows = []  # e, M, method, root, iterations, residual
+
+    # For plotting iterations vs eccentricity
+    es = []
+    it_bis = []
+    it_new = []
+
+    for (e, M) in cases:
+        # closure functions for this case
+        g = lambda E, ee=e, MM=M: kepler_g(E, ee, MM)
+        gp = lambda E, ee=e, MM=M: kepler_gp(E, ee, MM)
+
+        # Bisection
+        bres = bisection(g, a, b, eps=eps, max_iter=max_iter, verbose=verbose)
+        b_resid = abs(g(bres.root))
+        results_rows.append([e, M, "bisection", bres.root, bres.iterations, b_resid])
+
+        # Newton: good standard initial guess is E0 = M
+        nres = newton(g, gp, x0=M, eps=eps, max_iter=max_iter, verbose=verbose)
+        n_resid = abs(g(nres.root))
+        results_rows.append([e, M, "newton", nres.root, nres.iterations, n_resid])
+
+        es.append(e)
+        it_bis.append(bres.iterations)
+        it_new.append(nres.iterations)
+
+        print(f"\nCase e={e:.2f}, M={M:.2f}:")
+        print(f"  Bisection: E ~ {bres.root:.12g}, iters={bres.iterations}, |g(E)|~{b_resid:.3e}")
+        print(f"  Newton:    E ~ {nres.root:.12g}, iters={nres.iterations}, |g(E)|~{n_resid:.3e}")
+
+    # Save summary outputs
+    if not no_save:
+        ensure_dirs("figures", "tables")
+
+        header = ["e", "M", "method", "E_root", "iterations", "|g(E_root)|"]
+        write_csv("tables/problem3_kepler_results.csv", header, results_rows)
+
+        write_latex_table(
+            "tables/problem3_kepler_results.tex",
+            caption="Problem 3 results for Kepler's equation $M = E - e\\sin E$ solved via bisection and Newton-Raphson.",
+            label="tab:kepler_results",
+            header=header,
+            rows=results_rows,
+        )
+
+        # Figure: iteration count vs eccentricity (shows Newton sensitivity / nonlinearity)
+        plt.figure()
+        plt.xlabel("Eccentricity e")
+        plt.ylabel("Iterations")
+        plt.title("Kepler Equation: Iterations vs Eccentricity")
+        plt.plot(es, it_bis, marker="o", linestyle="-", label="Bisection")
+        plt.plot(es, it_new, marker="o", linestyle="-", label="Newton")
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig("figures/problem3_kepler_iterations.png", dpi=200)
+        plt.close()
+
+        print("\nSaved Problem 3 table to tables/ and figure to figures/ ✅")
+
+
 # ---------------------------
 # Main (Problem 2a is default behavior)
 # ---------------------------
@@ -317,6 +409,7 @@ def main() -> None:
     parser.add_argument("--no-save", action="store_true", help="Do not save tables/plots")
     parser.add_argument("--no-verbose", action="store_true", help="Do not print each step")
     parser.add_argument("--run-experiments", action="store_true", help="Run Q2(b)(c) experiments")
+    parser.add_argument("--problem3", action="store_true", help="Run Problem 3 (Kepler equation)")
     args = parser.parse_args()
 
     eps = args.eps
@@ -364,10 +457,10 @@ def main() -> None:
     if args.run_experiments:
         sensitivity_experiments(eps=eps)
 
+    # --- Problem #3: Kepler equation application ---
+    if args.problem3:
+        run_problem3(eps=eps, max_iter=args.maxiter, verbose=verbose, no_save=args.no_save)
+
 
 if __name__ == "__main__":
     main()
-
-# ============================================================
-# COMMIT #2: Plotting + sensitivity experiments for Q2(b)(c) + Part (a)
-# ============================================================
